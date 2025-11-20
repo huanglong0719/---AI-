@@ -49,13 +49,6 @@ const PRESETS: PresetCommand[] = [
     icon: 'layers',
     prompt: '去除图片中的马赛克或模糊，进行超分辨率重建，尽可能恢复原始细节和清晰度。',
     description: '去模糊，锐化细节'
-  },
-  {
-    id: 'clothes',
-    label: '一键换装',
-    icon: 'refresh',
-    prompt: '将人物的衣服换成带有霓虹灯的未来派赛博朋克夹克。',
-    description: '尝试新穿搭'
   }
 ];
 

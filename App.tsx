@@ -6,18 +6,32 @@ import { editImageWithGemini } from './services/geminiService';
 import { EditorState } from './types';
 
 type MobileTab = 'original' | 'result';
+type FittingMode = 'text' | 'image';
+
+const HAIRSTYLES = [
+  { id: 'long-wavy', label: '大波浪', prompt: '将发型改为长卷发大波浪，保持发色自然。' },
+  { id: 'short-bob', label: '波波头', prompt: '将发型改为时尚的短发波波头。' },
+  { id: 'straight', label: '黑长直', prompt: '将发型改为黑色长直发，柔顺亮泽。' },
+  { id: 'blonde', label: '金发', prompt: '将头发染成亮金色，保持发型不变。' },
+  { id: 'pink', label: '粉色系', prompt: '将头发染成柔和的粉色，充满二次元感。' },
+  { id: 'buzz', label: '寸头', prompt: '将发型改为干练的寸头。' },
+];
 
 const App: React.FC = () => {
   const [state, setState] = useState<EditorState>({
     originalImage: null,
     processedImage: null,
+    referenceImage: null,
     isProcessing: false,
     error: null,
     currentPrompt: '',
   });
 
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('original');
+  const [fittingMode, setFittingMode] = useState<FittingMode>('text');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const clothingInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
 
   // Auto-switch tab when processing completes
@@ -27,10 +41,26 @@ const App: React.FC = () => {
     }
   }, [state.processedImage]);
 
-  // Handle file selection
+  // Handle main file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       processFile(e.target.files[0]);
+    }
+  };
+
+  // Handle clothing reference file selection
+  const handleClothingFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setState(prev => ({
+          ...prev,
+          referenceImage: ev.target?.result as string,
+          currentPrompt: '将第一张图片中人物的服装替换为第二张图片中的服装。保持人物姿势、面部特征和背景不变。',
+        }));
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -45,6 +75,7 @@ const App: React.FC = () => {
       setState({
         originalImage: e.target?.result as string,
         processedImage: null,
+        referenceImage: null,
         isProcessing: false,
         error: null,
         currentPrompt: '',
@@ -77,14 +108,25 @@ const App: React.FC = () => {
     if (!state.originalImage || !state.currentPrompt.trim()) return;
 
     setState(prev => ({ ...prev, isProcessing: true, error: null }));
-    // On mobile, switch to result view immediately to show loading state
     setActiveMobileTab('result');
 
     try {
       const match = state.originalImage.match(/^data:(image\/\w+);base64,/);
       const mimeType = match ? match[1] : 'image/jpeg';
 
-      const result = await editImageWithGemini(state.originalImage, mimeType, state.currentPrompt);
+      let referenceMimeType = undefined;
+      if (state.referenceImage) {
+        const refMatch = state.referenceImage.match(/^data:(image\/\w+);base64,/);
+        referenceMimeType = refMatch ? refMatch[1] : 'image/jpeg';
+      }
+
+      const result = await editImageWithGemini(
+        state.originalImage, 
+        mimeType, 
+        state.currentPrompt,
+        state.referenceImage,
+        referenceMimeType
+      );
 
       setState(prev => ({
         ...prev,
@@ -97,7 +139,7 @@ const App: React.FC = () => {
         isProcessing: false,
         error: error.message || '处理过程中发生意外错误。',
       }));
-      setActiveMobileTab('original'); // Switch back on error so they can retry
+      setActiveMobileTab('original');
     }
   };
 
@@ -116,25 +158,44 @@ const App: React.FC = () => {
     setState({
       originalImage: null,
       processedImage: null,
+      referenceImage: null,
       isProcessing: false,
       error: null,
       currentPrompt: '',
     });
+    setFittingMode('text');
     setActiveMobileTab('original');
   };
 
   const handlePresetSelect = (prompt: string) => {
-    setState(prev => ({ ...prev, currentPrompt: prompt }));
+    // Clearing reference image when selecting a standard preset
+    setState(prev => ({ ...prev, currentPrompt: prompt, referenceImage: null }));
+  };
+
+  const handleHairstyleSelect = (prompt: string) => {
+    setState(prev => ({ ...prev, currentPrompt: prompt, referenceImage: null }));
+  };
+
+  const toggleFittingMode = (mode: FittingMode) => {
+    setFittingMode(mode);
+    if (mode === 'text') {
+      setState(prev => ({ 
+        ...prev, 
+        referenceImage: null,
+        currentPrompt: '' 
+      }));
+    } else {
+      setState(prev => ({ 
+        ...prev, 
+        currentPrompt: prev.referenceImage ? '将第一张图片中人物的服装替换为第二张图片中的服装。保持人物姿势、面部特征和背景不变。' : '' 
+      }));
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col font-sans text-slate-100">
       <Header />
 
-      {/* Main Layout 
-          Mobile: flex-col-reverse (Canvas on top, Controls on bottom)
-          Desktop: flex-row (Sidebar left, Canvas right)
-      */}
       <main className="flex-grow flex flex-col-reverse lg:flex-row lg:h-[calc(100vh-64px)] h-auto overflow-visible lg:overflow-hidden">
         
         {/* Left Sidebar - Controls */}
@@ -180,11 +241,11 @@ const App: React.FC = () => {
             )}
 
             {state.originalImage && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-white flex items-center">
                     <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-xs mr-2">2</span>
-                    编辑设置
+                    魔法工具箱
                   </h2>
                   <button 
                     onClick={resetEditor}
@@ -195,24 +256,99 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Presets */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">快捷指令</label>
+                {/* 1. Common Presets */}
+                <div className="space-y-3">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                    <Icon name="magic" size={14} /> 常用功能
+                  </label>
                   <PresetsPanel onSelectPreset={handlePresetSelect} disabled={state.isProcessing} />
                 </div>
 
-                {/* Custom Prompt */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">自定义指令</label>
+                {/* 2. Hair Studio */}
+                <div className="space-y-3">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                    <Icon name="scissors" size={14} /> 发型工作室
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {HAIRSTYLES.map((style) => (
+                      <button
+                        key={style.id}
+                        onClick={() => handleHairstyleSelect(style.prompt)}
+                        disabled={state.isProcessing}
+                        className="px-3 py-2 bg-slate-800 hover:bg-indigo-600/20 hover:text-indigo-400 hover:border-indigo-500/50 border border-slate-700 rounded-lg text-xs text-slate-300 transition-all"
+                      >
+                        {style.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Virtual Fitting Room */}
+                <div className="space-y-3">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                     <Icon name="user" size={14} /> 虚拟试衣间
+                  </label>
+                  <div className="bg-slate-800/50 rounded-xl p-1 border border-slate-700 flex mb-3">
+                    <button 
+                      onClick={() => toggleFittingMode('text')}
+                      className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${fittingMode === 'text' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                    >
+                      文字描述
+                    </button>
+                    <button 
+                      onClick={() => toggleFittingMode('image')}
+                      className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${fittingMode === 'image' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'}`}
+                    >
+                      上传服装图
+                    </button>
+                  </div>
+                  
+                  {fittingMode === 'image' ? (
+                    <div 
+                      className="border-2 border-dashed border-slate-700 rounded-xl p-4 hover:border-indigo-500/50 hover:bg-slate-800/50 transition-all cursor-pointer group"
+                      onClick={() => clothingInputRef.current?.click()}
+                    >
+                      <input 
+                        ref={clothingInputRef}
+                        type="file" 
+                        className="hidden" 
+                        onChange={handleClothingFileChange} 
+                        accept="image/*"
+                      />
+                      {state.referenceImage ? (
+                        <div className="relative h-32 w-full rounded-lg overflow-hidden bg-slate-900">
+                          <img src={state.referenceImage} alt="Clothing Reference" className="w-full h-full object-contain" />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                             <span className="text-xs text-white font-medium bg-black/50 px-2 py-1 rounded">点击更换</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center py-4 text-slate-400 group-hover:text-indigo-400">
+                          <Icon name="upload" size={20} className="mb-2" />
+                          <span className="text-xs">点击上传服装参考图</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 px-1">
+                      在下方输入框描述你想换的衣服，例如：“一件红色的晚礼服”
+                    </div>
+                  )}
+                </div>
+
+                {/* Prompt Input */}
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    {state.referenceImage ? '生成指令 (自动生成)' : '自定义指令'}
+                  </label>
                   <div className="relative">
                     <textarea
                       value={state.currentPrompt}
                       onChange={(e) => setState(prev => ({ ...prev, currentPrompt: e.target.value }))}
-                      placeholder="描述你想如何修改这张图片..."
+                      placeholder={fittingMode === 'text' ? "描述你想如何修改这张图片..." : "上传服装图后自动生成指令..."}
                       disabled={state.isProcessing}
-                      className="w-full bg-slate-800 text-sm text-slate-200 border border-slate-700 rounded-xl p-3 min-h-[100px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:outline-none resize-none transition-all"
+                      className="w-full bg-slate-800 text-sm text-slate-200 border border-slate-700 rounded-xl p-3 min-h-[80px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:outline-none resize-none transition-all"
                     />
-                    <Icon name="magic" size={16} className="absolute bottom-3 right-3 text-slate-500" />
                   </div>
                 </div>
 
@@ -231,12 +367,12 @@ const App: React.FC = () => {
                   {state.isProcessing ? (
                     <>
                       <Icon name="loader" className="animate-spin" />
-                      <span>处理中...</span>
+                      <span>AI 绘制中...</span>
                     </>
                   ) : (
                     <>
                       <Icon name="sparkles" />
-                      <span>生成图像</span>
+                      <span>{state.referenceImage ? '开始换装' : '立即生成'}</span>
                     </>
                   )}
                 </button>
@@ -253,9 +389,8 @@ const App: React.FC = () => {
         </div>
 
         {/* Right Area - Image Canvas */}
-        {/* Only show if there is an image, OR if we are on desktop (to show placeholder) */}
         <div className={`flex-1 bg-slate-950 relative flex flex-col lg:h-full ${!state.originalImage ? 'hidden lg:flex' : 'flex'}`}>
-           {/* Mobile Tabs for Switching View */}
+           {/* Mobile Tabs */}
            {state.originalImage && (
              <div className="lg:hidden flex bg-slate-900 border-b border-slate-800 sticky top-0 z-30">
                <button 
@@ -273,7 +408,7 @@ const App: React.FC = () => {
              </div>
            )}
 
-           {/* Grid Background Pattern */}
+           {/* Background */}
            <div className="absolute inset-0 opacity-10 pointer-events-none" 
                 style={{ 
                   backgroundImage: 'radial-gradient(#6366f1 1px, transparent 1px)', 
@@ -292,11 +427,9 @@ const App: React.FC = () => {
                </div>
              ) : (
                <div className="w-full max-w-6xl h-full flex flex-col">
-                 
-                 {/* View Container */}
                  <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
                    
-                   {/* Original Image - Hidden on mobile if tab is result */}
+                   {/* Original Image */}
                    <div className={`
                       flex-1 flex-col min-h-0 bg-slate-900/30 rounded-2xl border border-slate-800 overflow-hidden relative group
                       ${activeMobileTab === 'original' ? 'flex' : 'hidden lg:flex'}
@@ -313,7 +446,7 @@ const App: React.FC = () => {
                      </div>
                    </div>
 
-                   {/* Result Image - Hidden on mobile if tab is original */}
+                   {/* Result Image */}
                    <div className={`
                       flex-1 flex-col min-h-0 bg-slate-900/30 rounded-2xl border border-slate-800 overflow-hidden relative
                       ${activeMobileTab === 'result' ? 'flex' : 'hidden lg:flex'}
@@ -360,7 +493,7 @@ const App: React.FC = () => {
                         ) : (
                           <div className="text-slate-700 flex flex-col items-center p-8">
                             <Icon name="magic" size={48} className="mb-4 opacity-20" />
-                            <p className="text-sm font-medium text-center">输入指令并点击生成<br/>查看 AI 魔法效果</p>
+                            <p className="text-sm font-medium text-center">输入指令或上传服装图<br/>查看 AI 魔法效果</p>
                           </div>
                         )}
                       </div>

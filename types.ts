@@ -9,6 +9,7 @@ export interface PresetCommand {
 export interface EditorState {
   originalImage: string | null; // Data URL
   processedImage: string | null; // Data URL
+  referenceImage: string | null; // Data URL for clothing reference
   isProcessing: boolean;
   error: string | null;
   currentPrompt: string;
