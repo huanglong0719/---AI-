@@ -1,0 +1,5 @@
+{
+  "name": "Magic Lens - AI 图像编辑器",
+  "description": "基于 Gemini 2.5 Flash Image 的强大 AI 图像编辑套件。功能包括老照片修复、背景移除、风格迁移和通过自然语言进行对象操作。",
+  "requestFramePermissions": []
+}
